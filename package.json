@@ -4,11 +4,15 @@
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix server && npm install --prefix client",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
     "build:client": "npm run build --prefix client",
     "package:win": "npm run package:win --prefix server",
     "package:mac": "npm run package:mac --prefix server",
     "package:all": "npm run package:all --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
