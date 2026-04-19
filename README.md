@@ -32,7 +32,7 @@ A weather reporting application that helps generate location-based weather repor
 
 ## Development
 
-To run both the frontend and backend in development mode:
+To run both the frontend and backend in development mode with Cloudflare tunnel:
 
 ```bash
 npm run dev
@@ -41,8 +41,9 @@ npm run dev
 This will start:
 - **Frontend** (React/Vite): http://localhost:5174 (or 5173 if available)
 - **Backend** (Express.js): http://localhost:3001
+- **Cloudflare Tunnel**: Public URL for external access
 
-The frontend proxies API requests to the backend automatically.
+The frontend proxies API requests to the backend automatically. The Cloudflare tunnel provides a public HTTPS URL for accessing the application from outside your local network.
 
 ### Individual Services
 
