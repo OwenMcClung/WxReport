@@ -1,8 +1,21 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { compressImage } from './compressImage'
+import { extractExif } from './exif'
 import './App.css'
 
-const TEST_MODE = import.meta.env.VITE_TEST_MODE ?? 'true'
+const TEST_MODE = import.meta.env.VITE_TEST_MODE ?? 'false'
+const TWEET_LIMIT = 280
+
+function composeTweet(note, autoBlock) {
+  const n = (note ?? '').trim()
+  if (!autoBlock) return n
+  return n ? `${n}\n${autoBlock}` : autoBlock
+}
+
+function formatLocal(d) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function geoErrorMessage(err) {
   if (!err) return 'Could not get your location.'
@@ -21,6 +34,7 @@ export default function App() {
   const [coords, setCoords] = useState(null)
   const [locationStatus, setLocationStatus] = useState('idle') // idle | waiting | ready | error
   const [tweetText, setTweetText] = useState('')
+  const [note, setNote] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [shareStatus, setShareStatus] = useState('') // '' | 'shared' | 'copied'
   const cameraRef = useRef(null)
@@ -31,23 +45,28 @@ export default function App() {
     if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
   }, [])
 
-  // Fetch preview text once BOTH photo and coords are ready
+  // Prefer EXIF data from the photo itself; fall back to live GPS and
+  // file.lastModified. Fires as soon as some coords source is available.
   useEffect(() => {
-    if (!photo || !coords) return
+    if (!photo) return
+    const lat = photo.exif?.lat ?? coords?.lat
+    const lon = photo.exif?.lon ?? coords?.lon
+    if (lat == null || lon == null) return
+    const timestamp = photo.exif?.timestamp ?? formatLocal(new Date(photo.file.lastModified || Date.now()))
     let cancelled = false
     ;(async () => {
       try {
         const res = await fetch('/api/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lat: coords.lat, lon: coords.lon, testMode: TEST_MODE }),
+          body: JSON.stringify({ lat, lon, timestamp, testMode: TEST_MODE }),
         })
         if (!res.ok) throw new Error(`server ${res.status}`)
         const data = await res.json()
         if (!cancelled) setTweetText(data.tweetText ?? '')
       } catch {
         if (!cancelled) {
-          setTweetText(`📍 ${coords.lat.toFixed(3)}, ${coords.lon.toFixed(3)} — @McclungOwen #wxreport`)
+          setTweetText(`📍 ${lat.toFixed(4)}, ${lon.toFixed(4)}\n🕒 ${timestamp}\n@NWS #wxreport`)
         }
       }
     })()
@@ -63,6 +82,7 @@ export default function App() {
     setCoords(null)
     setLocationStatus('idle')
     setTweetText('')
+    setNote('')
     setErrorMsg('')
     setShareStatus('')
     setPhase('idle')
@@ -101,6 +121,9 @@ export default function App() {
     if (!file) return
     setPhase('preview')
 
+    // Read EXIF from the raw file — canvas re-encoding below strips it.
+    const exif = await extractExif(file)
+
     let finalFile = file
     try {
       finalFile = await compressImage(file)
@@ -108,11 +131,11 @@ export default function App() {
 
     const url = URL.createObjectURL(finalFile)
     photoUrlRef.current = url
-    setPhoto({ file: finalFile, url })
+    setPhoto({ file: finalFile, url, exif })
   }
 
   async function handleShare() {
-    const shareData = { text: tweetText, files: [photo.file] }
+    const shareData = { text: fullTweet, files: [photo.file] }
 
     if (navigator.canShare?.(shareData)) {
       try {
@@ -125,7 +148,7 @@ export default function App() {
     }
 
     try {
-      await navigator.clipboard.writeText(tweetText)
+      await navigator.clipboard.writeText(fullTweet)
       setShareStatus('copied')
     } catch {
       setErrorMsg('Sharing not supported. Copy the tweet text manually.')
@@ -133,7 +156,13 @@ export default function App() {
     }
   }
 
-  const awaitingLocation = phase === 'preview' && !coords && locationStatus !== 'error'
+  const hasCoords = coords != null || photo?.exif?.lat != null
+  const awaitingLocation = phase === 'preview' && !hasCoords && locationStatus !== 'error'
+  const fullTweet = composeTweet(note, tweetText)
+  const remaining = TWEET_LIMIT - fullTweet.length
+  // -1 reserves the newline between note and auto block when note is non-empty.
+  const maxNoteLength = Math.max(0, TWEET_LIMIT - (tweetText ? tweetText.length + 1 : 0))
+  const overLimit = remaining < 0
 
   return (
     <div className="app">
@@ -175,6 +204,22 @@ export default function App() {
               }
             </div>
 
+            {tweetText && (
+              <div className="note-field">
+                <textarea
+                  className="note-input"
+                  placeholder="Add details (optional) — e.g. what you're seeing"
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                  maxLength={maxNoteLength}
+                  rows={2}
+                />
+                <div className={`note-counter${remaining < 20 ? ' warn' : ''}${overLimit ? ' over' : ''}`}>
+                  {remaining} / {TWEET_LIMIT}
+                </div>
+              </div>
+            )}
+
             {locationStatus === 'error' && !tweetText && (
               <div className="share-hint">⚠️ {errorMsg} You can still share the photo without location.</div>
             )}
@@ -189,7 +234,7 @@ export default function App() {
               <button
                 className="btn btn-primary"
                 onClick={handleShare}
-                disabled={!photo || (!tweetText && locationStatus !== 'error')}
+                disabled={!photo || overLimit || (!tweetText && locationStatus !== 'error')}
               >
                 Share to X
               </button>
