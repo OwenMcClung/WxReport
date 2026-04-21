@@ -15,6 +15,37 @@ const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173'
 app.use(cors({ origin: allowedOrigin }))
 app.use(express.json())
 
+const SETTLEMENT_TYPES = new Set(['city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood'])
+const CARDINALS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+const toRad = d => d * Math.PI / 180
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.7613
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
+}
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const φ1 = toRad(lat1), φ2 = toRad(lat2)
+  const Δλ = toRad(lon2 - lon1)
+  const y = Math.sin(Δλ) * Math.cos(φ2)
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360
+}
+
+function cardinal8(deg) {
+  return CARDINALS_8[Math.round(deg / 45) % 8]
+}
+
+function stateCode(address) {
+  const iso = address['ISO3166-2-lvl4']
+  if (typeof iso === 'string' && iso.startsWith('US-')) return iso.slice(3)
+  return address.state ?? null
+}
+
 async function geocode(lat, lon) {
   try {
     const res = await fetch(
@@ -27,10 +58,21 @@ async function geocode(lat, lon) {
     if (!res.ok) throw new Error(`Nominatim ${res.status}`)
     const data = await res.json()
     const a = data.address ?? {}
-    const city = a.city ?? a.town ?? a.village ?? a.hamlet ?? a.county
-    const state = a.state
-    if (city && state) return `${city}, ${state}`
-    if (city) return city
+    const town = a.city ?? a.town ?? a.village ?? a.hamlet
+    const state = stateCode(a)
+
+    if (town && state && SETTLEMENT_TYPES.has(data.addresstype)) {
+      const fLat = Number(data.lat), fLon = Number(data.lon)
+      if (Number.isFinite(fLat) && Number.isFinite(fLon)) {
+        const miles = haversineMiles(lat, lon, fLat, fLon)
+        if (miles < 1) return `${town}, ${state}`
+        const dir = cardinal8(bearingDeg(fLat, fLon, lat, lon))
+        return `${Math.round(miles)} miles ${dir} of ${town}, ${state}`
+      }
+    }
+
+    if (town && state) return `${town}, ${state}`
+    if (town) return town
     if (state) return state
     return null
   } catch {
