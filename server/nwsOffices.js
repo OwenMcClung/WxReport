@@ -44,15 +44,66 @@ const NWS_HANDLES = {
   MRX: '@NWSMorristown', MEG: '@NWSMemphis', LMK: '@NWSLouisville',
 }
 
-export async function getNWSOfficeHandle(lat, lon) {
-  const res = await fetch(`https://api.weather.gov/points/${lat},${lon}`, {
-    headers: { 'User-Agent': 'QuickReport/1.0 (badbrick602@gmail.com)' },
-    signal: AbortSignal.timeout(5000),
-  })
-  if (!res.ok) throw new Error(`NWS API error: ${res.status}`)
-  const data = await res.json()
-  const cwa = data.properties?.cwa
-  if (!cwa) throw new Error('No CWA code returned from NWS')
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const boundaries = JSON.parse(
+  readFileSync(join(__dirname, 'cwaBoundaries.json'), 'utf-8')
+)
+
+// Precompute bounding boxes so point-in-polygon only runs against features
+// whose bbox contains the point.
+const cwaIndex = boundaries.features.map(f => {
+  const polygons = f.geometry.type === 'Polygon'
+    ? [f.geometry.coordinates]
+    : f.geometry.coordinates
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const rings of polygons) {
+    for (const [x, y] of rings[0]) {
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    }
+  }
+  return { cwa: f.properties.CWA, polygons, bbox: [minX, minY, maxX, maxY] }
+})
+
+function pointInRing(x, y, ring) {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1]
+    const xj = ring[j][0], yj = ring[j][1]
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+function pointInPolygon(x, y, rings) {
+  if (!pointInRing(x, y, rings[0])) return false
+  for (let i = 1; i < rings.length; i++) {
+    if (pointInRing(x, y, rings[i])) return false
+  }
+  return true
+}
+
+function findCWA(lat, lon) {
+  for (const { cwa, polygons, bbox } of cwaIndex) {
+    if (lon < bbox[0] || lon > bbox[2] || lat < bbox[1] || lat > bbox[3]) continue
+    for (const rings of polygons) {
+      if (pointInPolygon(lon, lat, rings)) return cwa
+    }
+  }
+  return null
+}
+
+export function getNWSOfficeHandle(lat, lon) {
+  const cwa = findCWA(lat, lon)
+  if (!cwa) return '@NWS'
   // Fall back to the main @NWS account rather than fabricating a handle like @NWSMRX
   return NWS_HANDLES[cwa] ?? '@NWS'
 }
