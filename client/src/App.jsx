@@ -85,9 +85,19 @@ async function sampleCompass(timeoutMs = 2000) {
   })
 }
 
+function initialPhase() {
+  try {
+    const needsPrompt = typeof DeviceOrientationEvent?.requestPermission === 'function'
+    const asked = localStorage.getItem('qr_permissions_asked') === '1'
+    return needsPrompt && !asked ? 'permissions' : 'idle'
+  } catch {
+    return 'idle'
+  }
+}
+
 export default function App() {
-  const [phase, setPhase] = useState('idle')
-  // idle | preview | error
+  const [phase, setPhase] = useState(initialPhase)
+  // permissions | idle | preview | error
   const [photo, setPhoto] = useState(null)   // { file, url, exif }
   const [coords, setCoords] = useState(null)
   const [locationStatus, setLocationStatus] = useState('idle') // idle | waiting | ready | error
@@ -141,6 +151,12 @@ export default function App() {
     })()
     return () => { cancelled = true }
   }, [photo, coords])
+
+  async function handleGrantPermissions() {
+    try { await ensureOrientationPermission() } catch { /* ignore */ }
+    try { localStorage.setItem('qr_permissions_asked', '1') } catch { /* ignore */ }
+    setPhase('idle')
+  }
 
   const reset = useCallback(() => {
     if (photoUrlRef.current) {
@@ -254,6 +270,18 @@ export default function App() {
       </header>
 
       <main className="app-main">
+        {phase === 'permissions' && (
+          <div className="screen screen-permissions">
+            <p className="tagline">
+              Allow motion &amp; orientation access so QuickReport can
+              record which way you were facing when you take a photo.
+            </p>
+            <button className="btn btn-primary btn-giant" onClick={handleGrantPermissions}>
+              Grant Permissions
+            </button>
+          </div>
+        )}
+
         {phase === 'idle' && (
           <div className="screen screen-idle">
             <p className="tagline">Spot something? Report it instantly.</p>
