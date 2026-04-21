@@ -3,7 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { getNWSOfficeHandle } from './nwsOffices.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -15,7 +15,8 @@ const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173'
 app.use(cors({ origin: allowedOrigin }))
 app.use(express.json())
 
-const SETTLEMENT_TYPES = new Set(['city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood'])
+const places = JSON.parse(readFileSync(join(__dirname, 'usPlaces.json'), 'utf-8'))
+
 const CARDINALS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 const toRad = d => d * Math.PI / 180
 
@@ -40,44 +41,35 @@ function cardinal8(deg) {
   return CARDINALS_8[Math.round(deg / 45) % 8]
 }
 
-function stateCode(address) {
-  const iso = address['ISO3166-2-lvl4']
-  if (typeof iso === 'string' && iso.startsWith('US-')) return iso.slice(3)
-  return address.state ?? null
+// Scans the full GNIS populated-places list for the closest point using a
+// planar approximation (fast, no trig). Accurate enough for nearest-neighbor
+// within the contiguous US and territories.
+function findNearestPlace(lat, lon) {
+  const cosLat = Math.cos(toRad(lat))
+  let bestIdx = -1
+  let bestD2 = Infinity
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i]
+    const dLat = p[2] - lat
+    const dLon = (p[3] - lon) * cosLat
+    const d2 = dLat * dLat + dLon * dLon
+    if (d2 < bestD2) {
+      bestD2 = d2
+      bestIdx = i
+    }
+  }
+  if (bestIdx < 0) return null
+  const p = places[bestIdx]
+  return { name: p[0], state: p[1], lat: p[2], lon: p[3] }
 }
 
-async function geocode(lat, lon) {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=12`,
-      {
-        headers: { 'User-Agent': 'QuickReport/1.0 (badbrick602@gmail.com)' },
-        signal: AbortSignal.timeout(5000),
-      }
-    )
-    if (!res.ok) throw new Error(`Nominatim ${res.status}`)
-    const data = await res.json()
-    const a = data.address ?? {}
-    const town = a.city ?? a.town ?? a.village ?? a.hamlet
-    const state = stateCode(a)
-
-    if (town && state && SETTLEMENT_TYPES.has(data.addresstype)) {
-      const fLat = Number(data.lat), fLon = Number(data.lon)
-      if (Number.isFinite(fLat) && Number.isFinite(fLon)) {
-        const miles = haversineMiles(lat, lon, fLat, fLon)
-        if (miles < 1) return `${town}, ${state}`
-        const dir = cardinal8(bearingDeg(fLat, fLon, lat, lon))
-        return `${Math.round(miles)} miles ${dir} of ${town}, ${state}`
-      }
-    }
-
-    if (town && state) return `${town}, ${state}`
-    if (town) return town
-    if (state) return state
-    return null
-  } catch {
-    return null
-  }
+function geocode(lat, lon) {
+  const p = findNearestPlace(lat, lon)
+  if (!p) return null
+  const miles = haversineMiles(lat, lon, p.lat, p.lon)
+  if (miles < 1) return `${p.name}, ${p.state}`
+  const dir = cardinal8(bearingDeg(p.lat, p.lon, lat, lon))
+  return `${Math.round(miles)} miles ${dir} of ${p.name}, ${p.state}`
 }
 
 async function resolveOfficeHandle(lat, lon, testMode) {
