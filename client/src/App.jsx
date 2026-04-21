@@ -53,13 +53,14 @@ export default function App() {
     const lon = photo.exif?.lon ?? coords?.lon
     if (lat == null || lon == null) return
     const timestamp = photo.exif?.timestamp ?? formatLocal(new Date(photo.file.lastModified || Date.now()))
+    const heading = photo.exif?.heading
     let cancelled = false
     ;(async () => {
       try {
         const res = await fetch('/api/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lat, lon, timestamp, testMode: TEST_MODE }),
+          body: JSON.stringify({ lat, lon, timestamp, heading, testMode: TEST_MODE }),
         })
         if (!res.ok) throw new Error(`server ${res.status}`)
         const data = await res.json()

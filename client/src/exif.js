@@ -1,7 +1,8 @@
-// Minimal JPEG EXIF reader. Returns any of { lat, lon, timestamp } that were
-// found in the file; silently returns {} on anything malformed or missing.
+// Minimal JPEG EXIF reader. Returns any of { lat, lon, timestamp, heading } that
+// were found in the file; silently returns {} on anything malformed or missing.
 // Timestamp is formatted "YYYY-MM-DD HH:MM" from EXIF DateTimeOriginal (local
 // wall-clock time at capture — EXIF has no timezone).
+// Heading is degrees 0-360 (camera direction / GPSImgDirection).
 export async function extractExif(file) {
   try {
     const buf = await file.slice(0, 128 * 1024).arrayBuffer()
@@ -102,6 +103,10 @@ export async function extractExif(file) {
         result.lat = latRef === 'S' ? -latDeg : latDeg
         result.lon = lonRef === 'W' ? -lonDeg : lonDeg
       }
+
+      const dir = gps[0x0011] && readValue(gps[0x0011])
+      const deg = Array.isArray(dir) ? dir[0] : dir
+      if (Number.isFinite(deg) && deg >= 0 && deg < 360) result.heading = deg
     }
 
     return result

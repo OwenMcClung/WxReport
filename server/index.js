@@ -102,10 +102,17 @@ function sanitizeTimestamp(s) {
   return cleaned || null
 }
 
+function parseHeading(h) {
+  const n = Number(h)
+  if (!Number.isFinite(n) || n < 0 || n >= 360) return null
+  return n
+}
+
 app.post('/api/preview', async (req, res) => {
   const coords = parseCoords(req.body)
   if (!coords) return res.status(400).json({ error: 'Valid lat and lon required' })
   const timestamp = sanitizeTimestamp(req.body.timestamp)
+  const heading = parseHeading(req.body.heading)
   try {
     const [location, officeHandle] = await Promise.all([
       geocode(coords.lat, coords.lon),
@@ -113,9 +120,10 @@ app.post('/api/preview', async (req, res) => {
     ])
     const locText = location ?? `${coords.lat.toFixed(3)}, ${coords.lon.toFixed(3)}`
     const coordText = `(${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)})`
+    const facingText = heading != null ? ` · facing ${cardinal8(heading)}` : ''
     const tsLine = timestamp ? `🕒 ${timestamp}\n` : ''
-    const tweetText = `📍 ${locText} ${coordText}\n${tsLine}${officeHandle} #wxreport`
-    res.json({ tweetText, location: locText, officeHandle, timestamp })
+    const tweetText = `📍 ${locText} ${coordText}${facingText}\n${tsLine}${officeHandle} #wxreport`
+    res.json({ tweetText, location: locText, officeHandle, timestamp, heading })
   } catch (err) {
     console.error('Preview error:', err.message)
     res.status(500).json({ error: 'Failed to build preview' })
