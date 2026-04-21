@@ -164,11 +164,6 @@ export default function App() {
   // the file input click), otherwise iOS Safari strips the user-gesture and
   // the camera/picker won't open.
   function startReport(source) {
-    // Kick off orientation permission here, while user-activation is fresh.
-    // It's not reliable to ask after the native camera returns — that tap
-    // isn't treated as fresh activation by iOS.
-    if (source === 'camera') ensureOrientationPermission()
-
     setLocationStatus('waiting')
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
