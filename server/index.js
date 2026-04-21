@@ -68,8 +68,9 @@ function geocode(lat, lon) {
   if (!p) return null
   const miles = haversineMiles(lat, lon, p.lat, p.lon)
   if (miles < 1) return `${p.name}, ${p.state}`
+  const rounded = Math.round(miles)
   const dir = cardinal8(bearingDeg(p.lat, p.lon, lat, lon))
-  return `${Math.round(miles)} miles ${dir} of ${p.name}, ${p.state}`
+  return `${rounded} ${rounded === 1 ? 'mile' : 'miles'} ${dir} of ${p.name}, ${p.state}`
 }
 
 async function resolveOfficeHandle(lat, lon, testMode) {
