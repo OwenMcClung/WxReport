@@ -41,17 +41,30 @@ function geoErrorMessage(err) {
   }
 }
 
-// Grabs a single compass reading from the device. iOS 13+ requires explicit
-// permission via a user gesture; we call from the file-input change handler,
-// which carries user activation. Returns degrees 0-360 or null.
-async function sampleCompass(timeoutMs = 2000) {
-  try {
-    if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-      const result = await DeviceOrientationEvent.requestPermission()
-      if (result !== 'granted') return null
-    }
-  } catch { return null }
+// iOS 13+ requires DeviceOrientationEvent.requestPermission() to be called
+// while user-activation is still "hot" (within ~5s of a tap). We kick this
+// off from the Take Photo button click — NOT from the file-input change
+// handler, because by the time the user finishes taking a photo the original
+// activation has expired. Result is cached so we prompt at most once per
+// session.
+let orientationPermission = null
+function ensureOrientationPermission() {
+  if (orientationPermission) return orientationPermission
+  if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+    orientationPermission = DeviceOrientationEvent.requestPermission()
+      .then(r => r === 'granted')
+      .catch(() => false)
+  } else {
+    orientationPermission = Promise.resolve(true)
+  }
+  return orientationPermission
+}
 
+// Grabs a single compass reading. Caller must have ensured permission first.
+// Returns degrees 0-360 or null.
+async function sampleCompass(timeoutMs = 2000) {
+  const granted = await ensureOrientationPermission()
+  if (!granted) return null
   return new Promise(resolve => {
     let settled = false
     const finish = v => {
@@ -151,6 +164,11 @@ export default function App() {
   // the file input click), otherwise iOS Safari strips the user-gesture and
   // the camera/picker won't open.
   function startReport(source) {
+    // Kick off orientation permission here, while user-activation is fresh.
+    // It's not reliable to ask after the native camera returns — that tap
+    // isn't treated as fresh activation by iOS.
+    if (source === 'camera') ensureOrientationPermission()
+
     setLocationStatus('waiting')
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
