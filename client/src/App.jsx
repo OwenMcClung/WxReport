@@ -5,6 +5,20 @@ import './App.css'
 
 const TEST_MODE = import.meta.env.VITE_TEST_MODE ?? 'false'
 const TWEET_LIMIT = 280
+const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
+function cardinal8(deg) {
+  if (!Number.isFinite(deg)) return null
+  return DIRS[Math.round(deg / 45) % 8]
+}
+
+function buildAutoBlock(preview, direction) {
+  if (!preview) return ''
+  const { location, coords, officeHandle, timestamp } = preview
+  const facing = direction ? ` · facing ${direction}` : ''
+  const tsLine = timestamp ? `🕒 ${timestamp}\n` : ''
+  return `📍 ${location} ${coords}${facing}\n${tsLine}${officeHandle} #wxreport`
+}
 
 function composeTweet(note, autoBlock) {
   const n = (note ?? '').trim()
@@ -27,13 +41,45 @@ function geoErrorMessage(err) {
   }
 }
 
+// Grabs a single compass reading from the device. iOS 13+ requires explicit
+// permission via a user gesture; we call from the file-input change handler,
+// which carries user activation. Returns degrees 0-360 or null.
+async function sampleCompass(timeoutMs = 2000) {
+  try {
+    if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+      const result = await DeviceOrientationEvent.requestPermission()
+      if (result !== 'granted') return null
+    }
+  } catch { return null }
+
+  return new Promise(resolve => {
+    let settled = false
+    const finish = v => {
+      if (settled) return
+      settled = true
+      window.removeEventListener('deviceorientationabsolute', handler)
+      window.removeEventListener('deviceorientation', handler)
+      clearTimeout(timer)
+      resolve(v)
+    }
+    const handler = e => {
+      const h = e.webkitCompassHeading ?? (typeof e.alpha === 'number' ? (360 - e.alpha) % 360 : null)
+      if (Number.isFinite(h)) finish(h)
+    }
+    window.addEventListener('deviceorientationabsolute', handler)
+    window.addEventListener('deviceorientation', handler)
+    const timer = setTimeout(() => finish(null), timeoutMs)
+  })
+}
+
 export default function App() {
   const [phase, setPhase] = useState('idle')
   // idle | preview | error
-  const [photo, setPhoto] = useState(null)   // { file, url }
+  const [photo, setPhoto] = useState(null)   // { file, url, exif }
   const [coords, setCoords] = useState(null)
   const [locationStatus, setLocationStatus] = useState('idle') // idle | waiting | ready | error
-  const [tweetText, setTweetText] = useState('')
+  const [preview, setPreview] = useState(null) // { location, coords, officeHandle, timestamp, heading }
+  const [direction, setDirection] = useState(null)
   const [note, setNote] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [shareStatus, setShareStatus] = useState('') // '' | 'shared' | 'copied'
@@ -64,10 +110,19 @@ export default function App() {
         })
         if (!res.ok) throw new Error(`server ${res.status}`)
         const data = await res.json()
-        if (!cancelled) setTweetText(data.tweetText ?? '')
+        if (cancelled) return
+        setPreview(data)
+        setDirection(prev => prev ?? cardinal8(data.heading))
       } catch {
         if (!cancelled) {
-          setTweetText(`📍 ${lat.toFixed(4)}, ${lon.toFixed(4)}\n🕒 ${timestamp}\n@NWS #wxreport`)
+          setPreview({
+            location: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+            coords: '',
+            officeHandle: '@NWS',
+            timestamp,
+            heading,
+          })
+          setDirection(prev => prev ?? cardinal8(heading))
         }
       }
     })()
@@ -82,7 +137,8 @@ export default function App() {
     setPhoto(null)
     setCoords(null)
     setLocationStatus('idle')
-    setTweetText('')
+    setPreview(null)
+    setDirection(null)
     setNote('')
     setErrorMsg('')
     setShareStatus('')
@@ -117,7 +173,7 @@ export default function App() {
     ref.current?.click()
   }
 
-  async function handlePhotoSelect(e) {
+  async function handlePhotoSelect(e, source) {
     const file = e.target.files?.[0]
     if (!file) return
     setPhase('preview')
@@ -132,8 +188,21 @@ export default function App() {
 
     const url = URL.createObjectURL(finalFile)
     photoUrlRef.current = url
-    setPhoto({ file: finalFile, url, exif })
+
+    // iOS strips heading from camera-captured files for privacy. Sample the
+    // device compass on return as the best available proxy. Skip for library
+    // uploads where EXIF heading either exists or isn't the user's current
+    // orientation anyway.
+    let heading = exif.heading
+    if (heading == null && source === 'camera') {
+      heading = await sampleCompass()
+    }
+
+    setPhoto({ file: finalFile, url, exif: { ...exif, heading: heading ?? exif.heading } })
   }
+
+  const autoBlock = buildAutoBlock(preview, direction)
+  const fullTweet = composeTweet(note, autoBlock)
 
   async function handleShare() {
     const shareData = { text: fullTweet, files: [photo.file] }
@@ -159,10 +228,9 @@ export default function App() {
 
   const hasCoords = coords != null || photo?.exif?.lat != null
   const awaitingLocation = phase === 'preview' && !hasCoords && locationStatus !== 'error'
-  const fullTweet = composeTweet(note, tweetText)
   const remaining = TWEET_LIMIT - fullTweet.length
   // -1 reserves the newline between note and auto block when note is non-empty.
-  const maxNoteLength = Math.max(0, TWEET_LIMIT - (tweetText ? tweetText.length + 1 : 0))
+  const maxNoteLength = Math.max(0, TWEET_LIMIT - (autoBlock ? autoBlock.length + 1 : 0))
   const overLimit = remaining < 0
 
   return (
@@ -197,15 +265,33 @@ export default function App() {
             </div>
 
             <div className="tweet-preview">
-              {tweetText
-                ? <p>{tweetText}</p>
-                : <p className="loading-text">
-                    {awaitingLocation ? 'Getting your location…' : 'Generating tweet…'}
-                  </p>
-              }
+              {preview ? (
+                <p>
+                  {`📍 ${preview.location}${preview.coords ? ` ${preview.coords}` : ''}`}
+                  {direction && (
+                    <>
+                      {' · facing '}
+                      <select
+                        className="dir-select"
+                        value={direction}
+                        onChange={e => setDirection(e.target.value)}
+                        aria-label="Camera heading"
+                      >
+                        {DIRS.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </>
+                  )}
+                  {preview.timestamp && `\n🕒 ${preview.timestamp}`}
+                  {`\n${preview.officeHandle} #wxreport`}
+                </p>
+              ) : (
+                <p className="loading-text">
+                  {awaitingLocation ? 'Getting your location…' : 'Generating tweet…'}
+                </p>
+              )}
             </div>
 
-            {tweetText && (
+            {preview && (
               <div className="note-field">
                 <textarea
                   className="note-input"
@@ -221,7 +307,7 @@ export default function App() {
               </div>
             )}
 
-            {locationStatus === 'error' && !tweetText && (
+            {locationStatus === 'error' && !preview && (
               <div className="share-hint">⚠️ {errorMsg} You can still share the photo without location.</div>
             )}
             {shareStatus === 'shared' && (
@@ -235,7 +321,7 @@ export default function App() {
               <button
                 className="btn btn-primary"
                 onClick={handleShare}
-                disabled={!photo || overLimit || (!tweetText && locationStatus !== 'error')}
+                disabled={!photo || overLimit || (!preview && locationStatus !== 'error')}
               >
                 Share to X
               </button>
@@ -264,14 +350,14 @@ export default function App() {
         accept="image/*"
         capture="environment"
         style={{ display: 'none' }}
-        onChange={handlePhotoSelect}
+        onChange={e => handlePhotoSelect(e, 'camera')}
       />
       <input
         ref={libraryRef}
         type="file"
         accept="image/*"
         style={{ display: 'none' }}
-        onChange={handlePhotoSelect}
+        onChange={e => handlePhotoSelect(e, 'library')}
       />
     </div>
   )

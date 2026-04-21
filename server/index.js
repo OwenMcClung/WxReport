@@ -120,10 +120,7 @@ app.post('/api/preview', async (req, res) => {
     ])
     const locText = location ?? `${coords.lat.toFixed(3)}, ${coords.lon.toFixed(3)}`
     const coordText = `(${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)})`
-    const facingText = heading != null ? ` · facing ${cardinal8(heading)}` : ''
-    const tsLine = timestamp ? `🕒 ${timestamp}\n` : ''
-    const tweetText = `📍 ${locText} ${coordText}${facingText}\n${tsLine}${officeHandle} #wxreport`
-    res.json({ tweetText, location: locText, officeHandle, timestamp, heading })
+    res.json({ location: locText, coords: coordText, officeHandle, timestamp, heading })
   } catch (err) {
     console.error('Preview error:', err.message)
     res.status(500).json({ error: 'Failed to build preview' })

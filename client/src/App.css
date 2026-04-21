@@ -106,6 +106,25 @@
   font-style: italic;
 }
 
+.dir-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  padding: 0 2px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.dir-select:focus {
+  outline: none;
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 4px;
+}
+
 .note-field {
   width: 100%;
   display: flex;
