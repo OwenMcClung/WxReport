@@ -130,6 +130,7 @@ export default function App() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lat, lon, timestamp, heading, testMode: TEST_MODE }),
+          signal: AbortSignal.timeout(10000),
         })
         if (!res.ok) throw new Error(`server ${res.status}`)
         const data = await res.json()
