@@ -1,4 +1,4 @@
-# QuickReport
+# WXReport
 
 A weather reporting application that helps generate location-based weather report tweets for National Weather Service offices.
 

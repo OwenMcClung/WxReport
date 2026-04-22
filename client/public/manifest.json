@@ -1,6 +1,6 @@
 {
-  "name": "QuickReport",
-  "short_name": "QuickReport",
+  "name": "WXReport",
+  "short_name": "WXReport",
   "description": "Report weather instantly to the right NWS office",
   "start_url": "/",
   "display": "standalone",

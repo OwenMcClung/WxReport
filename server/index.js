@@ -92,7 +92,7 @@ function parseCoords(body) {
 
 if (!hasClientBuild) {
   app.get('/', (_req, res) => {
-    res.json({ service: 'QuickReport', status: 'ready' })
+    res.json({ service: 'WXReport', status: 'ready' })
   })
 }
 
@@ -136,7 +136,7 @@ if (hasClientBuild) {
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
-  console.log(`\n⛈  QuickReport server running on port ${PORT}`)
+  console.log(`\n⛈  WXReport server running on port ${PORT}`)
   console.log(`   CORS allows: ${allowedOrigin}`)
   console.log(`   Static client: ${hasClientBuild ? clientDist : 'disabled (dev mode)'}\n`)
 })

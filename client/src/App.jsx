@@ -15,7 +15,7 @@ function cardinal8(deg) {
 function buildAutoBlock(preview, direction) {
   if (!preview) return ''
   const { location, coords, officeHandle, timestamp } = preview
-  const facing = direction ? ` · facing ${direction}` : ''
+  const facing = direction ? ` · Facing ${direction}` : ''
   const tsLine = timestamp ? `🕒 ${timestamp}\n` : ''
   return `📍 ${location} ${coords}${facing}\n${tsLine}${officeHandle} #wxreport`
 }
@@ -265,14 +265,14 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <span className="app-logo">⛈</span>
-        <h1>QuickReport</h1>
+        <h1>WXReport</h1>
       </header>
 
       <main className="app-main">
         {phase === 'permissions' && (
           <div className="screen screen-permissions">
             <p className="tagline">
-              Allow motion &amp; orientation access so QuickReport can
+              Allow motion &amp; orientation access so WXReport can
               record which way you were facing when you take a photo.
             </p>
             <button className="btn btn-primary btn-giant" onClick={handleGrantPermissions}>
@@ -310,7 +310,7 @@ export default function App() {
                   {`📍 ${preview.location}${preview.coords ? ` ${preview.coords}` : ''}`}
                   {direction && (
                     <>
-                      {' · facing '}
+                      {' · Facing '}
                       <select
                         className="dir-select"
                         value={direction}
