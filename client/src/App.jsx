@@ -86,13 +86,12 @@ async function sampleCompass(timeoutMs = 2000) {
 }
 
 function initialPhase() {
-  try {
-    const needsPrompt = typeof DeviceOrientationEvent?.requestPermission === 'function'
-    const asked = localStorage.getItem('qr_permissions_asked') === '1'
-    return needsPrompt && !asked ? 'permissions' : 'idle'
-  } catch {
-    return 'idle'
-  }
+  // iOS requires requestPermission() to be called from a user gesture on
+  // every page load, even when the grant is cached. So we always show the
+  // Grant screen on iOS — on return visits the tap passes through instantly
+  // because iOS returns the cached decision without a dialog.
+  const needsPrompt = typeof DeviceOrientationEvent?.requestPermission === 'function'
+  return needsPrompt ? 'permissions' : 'idle'
 }
 
 export default function App() {
@@ -155,7 +154,6 @@ export default function App() {
 
   async function handleGrantPermissions() {
     try { await ensureOrientationPermission() } catch { /* ignore */ }
-    try { localStorage.setItem('qr_permissions_asked', '1') } catch { /* ignore */ }
     setPhase('idle')
   }
 
